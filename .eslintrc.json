@@ -1,0 +1,38 @@
+{
+  "root": true,
+  "env": {
+    "node": true,
+    "es2021": true
+  },
+  "extends": [
+    "eslint:recommended",
+    "plugin:prettier/recommended" // Integrates Prettier with ESLint
+  ],
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "rules": {
+    "prettier/prettier": "warn", // Show Prettier issues as warnings
+    "no-unused-vars": "warn",
+    "no-console": "off" // Allow console.log in development, consider changing for production
+  },
+  "overrides": [
+    {
+      "files": ["packages/frontend/**/*.{js,jsx,ts,tsx}"],
+      "extends": [
+        "plugin:react/recommended",
+        "plugin:react-hooks/recommended"
+      ],
+      "settings": {
+        "react": {
+          "version": "detect"
+        }
+      },
+      "rules": {
+        "react/prop-types": "off", // Disable prop-types if using TypeScript or prefer manual validation
+        "react/react-in-jsx-scope": "off" // Not needed with React 17+ new JSX transform
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+# Ignore artifacts:
+build
+dist
+coverage
+
+# Ignore node_modules:
+node_modules
+
+# Ignore package-lock.json (usually managed by npm)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Ignore specific configuration files if needed
+# .env
+
+# Ignore files in frontend that might be auto-generated or have specific formatting
+packages/frontend/dist/
+packages/frontend/.vite/
+
+# Ignore files in backend that might be auto-generated
+packages/backend/dist/
+packages/backend/coverage/

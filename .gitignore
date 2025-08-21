@@ -1,0 +1,59 @@
+# Node / NPM
+node_modules/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build outputs
+/dist
+/build
+/out
+
+# IDE / Editor specific
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+
+# Docker
+**/docker-compose.override.yml
+
+# Test coverage
+/coverage
+
+# Frontend specific build artifacts
+packages/frontend/dist/
+packages/frontend/.vite/
+
+# Backend specific build artifacts
+packages/backend/dist/
+packages/backend/coverage/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Misc
+.eslintcache

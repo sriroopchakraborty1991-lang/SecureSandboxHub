@@ -1,4 +1,4 @@
-Dwtails here https://deepwiki.com/sriroopchakraborty1991-lang/SecureSandboxHub/1-mcp-sandbox-security-platform-overview
+Details here https://deepwiki.com/sriroopchakraborty1991-lang/SecureSandboxHub/1-mcp-sandbox-security-platform-overview
 
 # MCP Sandbox Security Platform
 

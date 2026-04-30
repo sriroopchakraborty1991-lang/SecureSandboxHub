@@ -4,7 +4,7 @@ import {hashPassword, verifyPassword} from './security/password';
 import {createUser, getUserByEmail} from './db/users';
 import {createPolicy, getPolicyById, listPolicies, policyTemplates, type PolicyRules} from './db/policies';
 import {createSandbox, getSandboxById, listSandboxes, setSandboxContainerId, setSandboxStatus} from './db/sandboxes';
-import {appendEvent, listEvents} from './db/events';
+import {appendEvent, getLastEventTs, listEvents, listRecentAlerts, type SandboxEvent} from './db/events';
 import {subscribeToSandboxEvents} from './events/bus';
 import {analyzeThreat} from './threat/scoring';
 
@@ -21,6 +21,91 @@ function ensureDefaultPolicies(app: FastifyInstance, userId: string): void {
     if (existing.has(t.name)) continue;
     createPolicy(app.db, {name: t.name, rules: t.rules, createdBy: userId});
   }
+}
+
+const lastAlertAtByKey = new Map<string, number>();
+
+function maybeEmitAlert(app: FastifyInstance, input: {createdBy: string; sandboxId: string; key: string; message: string; meta: Record<string, unknown>}): void {
+  const k = `${input.createdBy}:${input.sandboxId}:${input.key}`;
+  const now = Date.now();
+  const last = lastAlertAtByKey.get(k) ?? 0;
+  if (now - last < 30000) return;
+  lastAlertAtByKey.set(k, now);
+  appendEvent(app.db, {sandboxId: input.sandboxId, ts: now, type: 'alert', message: input.message, meta: input.meta});
+}
+
+async function buildRunningSessionsSnapshot(app: FastifyInstance, createdBy: string): Promise<{
+  sessions: Array<{
+    sandboxId: string;
+    image: string;
+    policyId: string;
+    policyName: string;
+    createdAt: number;
+    dockerContainerId: string | null;
+    lastEventTs: number | null;
+    stats: {cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; ts: number} | null;
+    warnings: string[];
+  }>;
+}> {
+  const sandboxes = listSandboxes(app.db, createdBy).filter((s) => s.status === 'running');
+  const sessions = [];
+
+  for (const s of sandboxes) {
+    const policy = getPolicyById(app.db, s.policyId, createdBy);
+    const warnings: string[] = [];
+    let stats: {cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; ts: number} | null = null;
+
+    if (!policy) {
+      warnings.push('policy_not_found');
+    } else if (s.dockerContainerId) {
+      try {
+        stats = await app.runner.getContainerStatsSnapshot(s.dockerContainerId);
+
+        const memLimitBytes = Math.max(1, policy.rules.memoryLimitMb) * 1024 * 1024;
+        const memPct = (stats.memoryBytes / memLimitBytes) * 100;
+        if (memPct >= 90) {
+          maybeEmitAlert(app, {
+            createdBy,
+            sandboxId: s.id,
+            key: 'mem_90',
+            message: `memory_high:${memPct.toFixed(1)}%`,
+            meta: {memoryBytes: stats.memoryBytes, memoryLimitBytes: memLimitBytes, policyMemoryLimitMb: policy.rules.memoryLimitMb}
+          });
+        }
+
+        const cpuPct = stats.cpuPercent;
+        const cpuLimitPct = Math.max(0.1, policy.rules.cpuLimit) * 100;
+        const cpuPctOfLimit = (cpuPct / cpuLimitPct) * 100;
+        if (cpuPctOfLimit >= 90) {
+          maybeEmitAlert(app, {
+            createdBy,
+            sandboxId: s.id,
+            key: 'cpu_90',
+            message: `cpu_high:${cpuPctOfLimit.toFixed(1)}%`,
+            meta: {cpuPercent: cpuPct, policyCpuLimit: policy.rules.cpuLimit}
+          });
+        }
+      } catch {
+        warnings.push('docker_unavailable');
+      }
+    } else {
+      warnings.push('missing_container_id');
+    }
+
+    sessions.push({
+      sandboxId: s.id,
+      image: s.image,
+      policyId: s.policyId,
+      policyName: policy?.name ?? s.policyId,
+      createdAt: s.createdAt,
+      dockerContainerId: s.dockerContainerId,
+      lastEventTs: getLastEventTs(app.db, s.id),
+      stats,
+      warnings
+    });
+  }
+
+  return {sessions};
 }
 
 export function registerRoutes(app: FastifyInstance) {
@@ -256,5 +341,80 @@ export function registerRoutes(app: FastifyInstance) {
 
     const events = listEvents(app.db, sandbox.id, 200);
     return reply.send({analysis: analyzeThreat({sandbox, policy: policy.rules, events})});
+  });
+
+  app.get('/api/monitoring/sessions', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    ensureDefaultPolicies(app, auth.id);
+    const snapshot = await buildRunningSessionsSnapshot(app, auth.id);
+    return reply.send(snapshot);
+  });
+
+  app.get('/api/monitoring/history', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const qSchema = Joi.object({limit: Joi.number().integer().min(1).max(200).default(50)});
+    const {value: query, error} = qSchema.validate(req.query);
+    if (error) return reply.code(400).send({error: error.message});
+
+    const rows = app.db
+      .prepare(
+        'SELECT id, status, docker_container_id as dockerContainerId, image, command_json as commandJson, policy_id as policyId, created_by as createdBy, created_at as createdAt, stopped_at as stoppedAt FROM sandboxes WHERE created_by = ? ORDER BY created_at DESC LIMIT ?'
+      )
+      .all(auth.id, query.limit) as Array<any>;
+
+    const sandboxes = rows.map((r) => ({
+      id: r.id as string,
+      status: r.status as string,
+      dockerContainerId: (r.dockerContainerId as string | null) ?? null,
+      image: r.image as string,
+      command: r.commandJson ? (JSON.parse(r.commandJson) as string[]) : null,
+      policyId: r.policyId as string,
+      createdBy: r.createdBy as string,
+      createdAt: r.createdAt as number,
+      stoppedAt: (r.stoppedAt as number | null) ?? null
+    }));
+
+    return reply.send({sandboxes});
+  });
+
+  app.get('/api/monitoring/alerts', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const qSchema = Joi.object({limit: Joi.number().integer().min(1).max(200).default(50)});
+    const {value: query, error} = qSchema.validate(req.query);
+    if (error) return reply.code(400).send({error: error.message});
+    const alerts: SandboxEvent[] = listRecentAlerts(app.db, auth.id, query.limit);
+    return reply.send({alerts});
+  });
+
+  app.get('/api/monitoring/stream', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive'
+    });
+    reply.raw.write('\n');
+
+    const sendSnapshot = async () => {
+      try {
+        const snapshot = await buildRunningSessionsSnapshot(app, auth.id);
+        reply.raw.write(`event: monitoring_snapshot\n`);
+        reply.raw.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+      } catch {}
+    };
+
+    await sendSnapshot();
+    const interval = setInterval(() => void sendSnapshot(), 5000);
+
+    reply.raw.on('close', () => {
+      clearInterval(interval);
+    });
+
+    return reply;
   });
 }

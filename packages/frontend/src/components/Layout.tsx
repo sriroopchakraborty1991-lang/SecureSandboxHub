@@ -21,6 +21,9 @@ export default function Layout(props: {children: React.ReactNode}) {
                   <Link to="/sandboxes" style={active('/sandboxes')}>
                     Sandboxes
                   </Link>
+                  <Link to="/monitoring" style={active('/monitoring')}>
+                    Monitoring
+                  </Link>
                   <Link to="/policies" style={active('/policies')}>
                     Policies
                   </Link>
@@ -50,4 +53,3 @@ export default function Layout(props: {children: React.ReactNode}) {
     </div>
   );
 }
-

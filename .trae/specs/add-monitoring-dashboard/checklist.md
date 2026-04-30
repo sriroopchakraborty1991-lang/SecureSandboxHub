@@ -1,0 +1,10 @@
+- [x] UI has a Monitoring navigation entry and `/monitoring` route is accessible after login.
+- [x] Monitoring page lists running sessions and links to per-session detail.
+- [x] Monitoring page shows CPU and memory usage per running session and updates at least every 5 seconds.
+- [x] Alerts are generated and persisted for:
+  - [x] non-zero container exit code
+  - [x] memory usage >= 90% of policy limit
+  - [x] CPU usage >= 90% of policy limit
+- [x] Monitoring page shows recent alerts and links each alert to a session.
+- [x] Monitoring page shows session history (recent sessions) and allows opening a session’s event log view.
+- [x] Existing per-session SSE event stream continues to work; alert events render safely.

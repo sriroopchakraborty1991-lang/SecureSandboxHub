@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import type {Db} from './db';
 
-export type SandboxEventType = 'info' | 'stdout' | 'stderr' | 'error' | 'lifecycle';
+export type SandboxEventType = 'info' | 'stdout' | 'stderr' | 'error' | 'lifecycle' | 'alert';
 
 export type SandboxEvent = {
   id: string;
@@ -50,3 +50,29 @@ export function listEvents(db: Db, sandboxId: string, limit: number, beforeTs?: 
     .reverse();
 }
 
+export function listRecentAlerts(db: Db, createdBy: string, limit: number): SandboxEvent[] {
+  const rows = db
+    .prepare(
+      `SELECT e.id, e.sandbox_id as sandboxId, e.ts, e.type, e.message, e.meta_json as metaJson
+       FROM sandbox_events e
+       JOIN sandboxes s ON s.id = e.sandbox_id
+       WHERE s.created_by = ? AND e.type = 'alert'
+       ORDER BY e.ts DESC
+       LIMIT ?`
+    )
+    .all(createdBy, limit) as Array<any>;
+
+  return rows.map((r) => ({
+    id: r.id as string,
+    sandboxId: r.sandboxId as string,
+    ts: r.ts as number,
+    type: r.type as SandboxEventType,
+    message: r.message as string,
+    meta: r.metaJson ? (JSON.parse(r.metaJson) as Record<string, unknown>) : null
+  }));
+}
+
+export function getLastEventTs(db: Db, sandboxId: string): number | null {
+  const row = db.prepare('SELECT MAX(ts) as ts FROM sandbox_events WHERE sandbox_id = ?').get(sandboxId) as {ts: number | null};
+  return row.ts ?? null;
+}

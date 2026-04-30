@@ -25,12 +25,24 @@ export type SandboxEvent = {
   id: string;
   sandboxId: string;
   ts: number;
-  type: 'info' | 'stdout' | 'stderr' | 'error' | 'lifecycle';
+  type: 'info' | 'stdout' | 'stderr' | 'error' | 'lifecycle' | 'alert';
   message: string;
   meta: Record<string, unknown> | null;
 };
 
 export type ThreatAnalysis = {score: number; level: 'low' | 'medium' | 'high'; reasons: string[]};
+
+export type MonitoringSession = {
+  sandboxId: string;
+  image: string;
+  policyId: string;
+  policyName: string;
+  createdAt: number;
+  dockerContainerId: string | null;
+  lastEventTs: number | null;
+  stats: {cpuPercent: number; memoryBytes: number; memoryLimitBytes: number; ts: number} | null;
+  warnings: string[];
+};
 
 const tokenKey = 'ssh.token';
 
@@ -133,6 +145,28 @@ export async function threatAnalysis(sandboxId: string): Promise<ThreatAnalysis>
 export function sandboxEventsStreamUrl(sandboxId: string): string {
   const token = getToken();
   const url = new URL(`${apiBase()}/api/sandboxes/${encodeURIComponent(sandboxId)}/events/stream`);
+  if (token) url.searchParams.set('token', token);
+  return url.toString();
+}
+
+export async function monitoringSessions(): Promise<MonitoringSession[]> {
+  const res = await request<{sessions: MonitoringSession[]}>('/api/monitoring/sessions');
+  return res.sessions;
+}
+
+export async function monitoringAlerts(limit = 50): Promise<SandboxEvent[]> {
+  const res = await request<{alerts: SandboxEvent[]}>(`/api/monitoring/alerts?limit=${encodeURIComponent(String(limit))}`);
+  return res.alerts;
+}
+
+export async function monitoringHistory(limit = 50): Promise<Sandbox[]> {
+  const res = await request<{sandboxes: Sandbox[]}>(`/api/monitoring/history?limit=${encodeURIComponent(String(limit))}`);
+  return res.sandboxes;
+}
+
+export function monitoringStreamUrl(): string {
+  const token = getToken();
+  const url = new URL(`${apiBase()}/api/monitoring/stream`);
   if (token) url.searchParams.set('token', token);
   return url.toString();
 }

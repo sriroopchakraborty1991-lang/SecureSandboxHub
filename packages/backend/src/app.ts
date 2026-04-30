@@ -34,7 +34,7 @@ export function buildApp(input: {db: Db; runner: SandboxRunner; jwtSecret: strin
     let token: string | null = null;
     if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
       token = authHeader.slice('Bearer '.length).trim();
-    } else if (req.routeOptions?.url?.endsWith('/events/stream')) {
+    } else if (req.routeOptions?.url?.endsWith('/stream')) {
       const q = req.query as any;
       if (typeof q?.token === 'string') token = q.token;
     }

@@ -41,6 +41,26 @@ export class SandboxRunner {
     this.emit(input.sandboxId, 'lifecycle', `container_stopped:${input.containerId}`, {containerId: input.containerId});
   }
 
+  async getContainerStatsSnapshot(containerId: string): Promise<{
+    cpuPercent: number;
+    memoryBytes: number;
+    memoryLimitBytes: number;
+    ts: number;
+  }> {
+    const container = this.docker.getContainer(containerId);
+    const stats = (await container.stats({stream: false})) as any;
+
+    const cpuDelta = (stats?.cpu_stats?.cpu_usage?.total_usage ?? 0) - (stats?.precpu_stats?.cpu_usage?.total_usage ?? 0);
+    const systemDelta = (stats?.cpu_stats?.system_cpu_usage ?? 0) - (stats?.precpu_stats?.system_cpu_usage ?? 0);
+    const onlineCpus = stats?.cpu_stats?.online_cpus ?? stats?.cpu_stats?.cpu_usage?.percpu_usage?.length ?? 1;
+    const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * onlineCpus * 100 : 0;
+
+    const memoryBytes = stats?.memory_stats?.usage ?? 0;
+    const memoryLimitBytes = stats?.memory_stats?.limit ?? 0;
+
+    return {cpuPercent, memoryBytes, memoryLimitBytes, ts: Date.now()};
+  }
+
   private async createContainerWithPull(input: {image: string; command: string[] | null; policy: PolicyRules; sandboxId: string}): Promise<Docker.Container> {
     try {
       return await this.createContainer(input);
@@ -118,6 +138,9 @@ export class SandboxRunner {
       (res: any) => {
         const code = res?.StatusCode;
         this.emit(sandboxId, 'lifecycle', `container_exit:${String(code ?? 'unknown')}`, res && typeof res === 'object' ? res : null);
+        if (typeof code === 'number' && code !== 0) {
+          this.emit(sandboxId, 'alert', `nonzero_exit_code:${String(code)}`, {statusCode: code});
+        }
       },
       (err: any) => {
         this.emit(sandboxId, 'error', `container_wait_error:${String(err?.message ?? err)}`, null);

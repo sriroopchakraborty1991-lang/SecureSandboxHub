@@ -6,6 +6,7 @@ import RegisterPage from './pages/Register';
 import PoliciesPage from './pages/Policies';
 import SandboxesPage from './pages/Sandboxes';
 import SandboxDetailPage from './pages/SandboxDetail';
+import MonitoringPage from './pages/Monitoring';
 
 function RequireAuth(props: {children: React.ReactNode}) {
   const auth = useAuth();
@@ -39,6 +40,14 @@ export default function App() {
             }
           />
           <Route
+            path="/monitoring"
+            element={
+              <RequireAuth>
+                <MonitoringPage />
+              </RequireAuth>
+            }
+          />
+          <Route
             path="/sandboxes/:id"
             element={
               <RequireAuth>
@@ -52,4 +61,3 @@ export default function App() {
     </AuthProvider>
   );
 }
-

@@ -76,6 +76,21 @@ export const policyTemplates: Array<{name: string; rules: PolicyRules}> = [
   {
     name: 'Network Allowed',
     rules: {allowNetwork: true, memoryLimitMb: 512, cpuLimit: 1, readOnlyRootFs: true}
+  },
+  {
+    name: 'Locked Down (Tiny)',
+    rules: {allowNetwork: false, memoryLimitMb: 128, cpuLimit: 0.25, readOnlyRootFs: true}
+  },
+  {
+    name: 'Compute (No Network)',
+    rules: {allowNetwork: false, memoryLimitMb: 2048, cpuLimit: 2, readOnlyRootFs: true}
+  },
+  {
+    name: 'Install/Build (Network + Writable)',
+    rules: {allowNetwork: true, memoryLimitMb: 1024, cpuLimit: 2, readOnlyRootFs: false}
+  },
+  {
+    name: 'Debug (Network + Writable, Small)',
+    rules: {allowNetwork: true, memoryLimitMb: 512, cpuLimit: 1, readOnlyRootFs: false}
   }
 ];
-

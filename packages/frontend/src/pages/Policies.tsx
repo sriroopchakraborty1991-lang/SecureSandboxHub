@@ -6,6 +6,7 @@ const defaultRules: PolicyRules = {allowNetwork: false, memoryLimitMb: 256, cpuL
 export default function PoliciesPage() {
   const [policies, setPolicies] = React.useState<Policy[]>([]);
   const [templates, setTemplates] = React.useState<Array<{name: string; rules: PolicyRules}>>([]);
+  const [selectedTemplate, setSelectedTemplate] = React.useState<string>('');
   const [name, setName] = React.useState('');
   const [rules, setRules] = React.useState<PolicyRules>(defaultRules);
   const [error, setError] = React.useState<string | null>(null);
@@ -42,9 +43,12 @@ export default function PoliciesPage() {
               style={{maxWidth: 260}}
               onChange={(e) => {
                 const t = templates.find((x) => x.name === e.target.value);
-                if (t) setRules(t.rules);
+                if (!t) return;
+                setSelectedTemplate(t.name);
+                setRules(t.rules);
+                if (!name.trim()) setName(t.name);
               }}
-              value=""
+              value={selectedTemplate}
             >
               <option value="" disabled>
                 Use template…
@@ -103,6 +107,7 @@ export default function PoliciesPage() {
                   await createPolicy({name: name || 'Untitled Policy', rules});
                   setName('');
                   setRules(defaultRules);
+                  setSelectedTemplate('');
                   await refresh();
                 } catch (e: any) {
                   setError(String(e?.message ?? e));

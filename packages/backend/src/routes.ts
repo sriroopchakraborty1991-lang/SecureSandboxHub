@@ -14,6 +14,15 @@ function requireAuth(req: FastifyRequest, reply: FastifyReply): {id: string; rol
   return null;
 }
 
+function ensureDefaultPolicies(app: FastifyInstance, userId: string): void {
+  const rows = app.db.prepare('SELECT name FROM policies WHERE created_by = ?').all(userId) as Array<{name: string}>;
+  const existing = new Set(rows.map((r) => r.name));
+  for (const t of policyTemplates) {
+    if (existing.has(t.name)) continue;
+    createPolicy(app.db, {name: t.name, rules: t.rules, createdBy: userId});
+  }
+}
+
 export function registerRoutes(app: FastifyInstance) {
   app.post('/api/auth/register', async (req, reply) => {
     const schema = Joi.object({
@@ -30,6 +39,7 @@ export function registerRoutes(app: FastifyInstance) {
     const role = userCount.c === 0 ? 'admin' : 'user';
 
     const user = createUser(app.db, {email: value.email, passwordHash: hashPassword(value.password), role});
+    ensureDefaultPolicies(app, user.id);
     const token = app.jwt.sign({sub: user.id, role: user.role});
     return reply.send({token, user: {id: user.id, email: user.email, role: user.role}});
   });
@@ -46,6 +56,7 @@ export function registerRoutes(app: FastifyInstance) {
     if (!user) return reply.code(401).send({error: 'invalid_credentials'});
     if (!verifyPassword(value.password, user.passwordHash)) return reply.code(401).send({error: 'invalid_credentials'});
 
+    ensureDefaultPolicies(app, user.id);
     const token = app.jwt.sign({sub: user.id, role: user.role});
     return reply.send({token, user: {id: user.id, email: user.email, role: user.role}});
   });
@@ -59,6 +70,7 @@ export function registerRoutes(app: FastifyInstance) {
   app.get('/api/policies', async (req, reply) => {
     const auth = requireAuth(req, reply);
     if (!auth) return;
+    ensureDefaultPolicies(app, auth.id);
     return reply.send({policies: listPolicies(app.db, auth.id)});
   });
 

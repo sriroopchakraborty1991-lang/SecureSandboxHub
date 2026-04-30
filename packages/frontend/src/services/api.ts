@@ -45,7 +45,7 @@ export function setToken(token: string | null): void {
 
 function apiBase(): string {
   const v = (import.meta as any).env?.VITE_API_URL as string | undefined;
-  return v?.replace(/\/$/, '') ?? 'http://localhost:3001';
+  return v?.replace(/\/$/, '') ?? '';
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -136,4 +136,3 @@ export function sandboxEventsStreamUrl(sandboxId: string): string {
   if (token) url.searchParams.set('token', token);
   return url.toString();
 }
-

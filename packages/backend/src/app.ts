@@ -29,9 +29,18 @@ export function buildApp(input: {db: Db; runner: SandboxRunner; jwtSecret: strin
   app.decorateRequest('authUser', null);
 
   app.addHook('preHandler', async (req) => {
-    if (!req.headers.authorization) return;
+    if (req.authUser) return;
+    const authHeader = req.headers.authorization;
+    let token: string | null = null;
+    if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice('Bearer '.length).trim();
+    } else if (req.routeOptions?.url?.endsWith('/events/stream')) {
+      const q = req.query as any;
+      if (typeof q?.token === 'string') token = q.token;
+    }
+    if (!token) return;
     try {
-      const payload = (await req.jwtVerify()) as any;
+      const payload = app.jwt.verify(token) as any;
       const id = typeof payload?.sub === 'string' ? payload.sub : null;
       const role = payload?.role === 'admin' ? 'admin' : 'user';
       if (id) (req as any).authUser = {id, role} satisfies AuthUser;

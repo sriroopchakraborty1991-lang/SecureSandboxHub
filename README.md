@@ -1,126 +1,64 @@
-Details here https://deepwiki.com/sriroopchakraborty1991-lang/SecureSandboxHub/1-mcp-sandbox-security-platform-overview
+# SecureSandboxHub
 
-# MCP Sandbox Security Platform
+SecureSandboxHub is a small “sandbox security platform” you can run locally: create security policies, start sandbox sessions as Docker containers, monitor events live, and compute a simple deterministic risk score.
 
-A simplified sandbox security platform for managing and monitoring secure execution environments.
+## What You Can Do
+- **Policies**: Define safe runtime constraints (network on/off, CPU, memory, read-only root FS).
+- **Sandboxes**: Start/stop isolated Docker-based sessions.
+- **Monitoring**: Live event stream (SSE) for each session (stdout/stderr/lifecycle).
+- **Threat Analysis**: Rule-based risk score + human-readable reasons.
 
-## Core Features
+## Quickstart (Recommended)
+1. Copy environment files:
 
-- **Sandbox Management**: Create and manage isolated execution environments
-- **Security Policies**: Define and enforce security rules for sandbox sessions
-- **Threat Analysis**: Basic threat detection and risk assessment
-- **Role-Based Access Control**: User authentication and authorization
-- **Real-time Monitoring**: WebSocket-based session monitoring
-
-## Technology Stack
-
-- **Backend**: Node.js with Fastify framework
-- **Frontend**: React with Vite
-- **Database**: PostgreSQL with Prisma ORM
-- **Authentication**: JWT tokens
-- **Caching**: Redis (optional)
-- **Containerization**: Docker
-
-## Quick Start
-
-### Prerequisites
-- Docker and Docker Compose
-- Node.js 18+ (for local development)
-
-### Development Setup
-
-1. Clone the repository
-2. Copy environment files:
-   ```bash
-   cp packages/backend/.env.example packages/backend/.env
-   cp packages/frontend/.env.example packages/frontend/.env
-   ```
-3. Start the development environment:
-   ```bash
-   docker-compose up -d
-   ```
-4. Access the application:
-   - Frontend: http://localhost:3000
-   - Backend API: http://localhost:3001
-   - Database: localhost:5432
-
-### API Endpoints
-
-- `POST /api/sandbox` - Create new sandbox session
-- `GET /api/sandbox` - List sandbox sessions
-- `GET /api/policies` - List security policies
-- `POST /api/policies` - Create security policy
-- `POST /api/threat-analysis` - Analyze threats
-
-## Project Structure
-
-```
-packages/
-├── backend/          # Fastify API server
-│   ├── src/
-│   │   ├── controllers/  # Route handlers
-│   │   ├── routes/       # API routes
-│   │   ├── services/     # Business logic
-│   │   └── utils/        # Utilities
-│   └── prisma/       # Database schema
-└── frontend/         # React application
-    └── src/
-        ├── components/   # React components
-        ├── features/     # Feature modules
-        ├── hooks/        # Custom hooks
-        └── services/     # API services
-```
-
-## Development
-
-### Backend Development
 ```bash
-cd packages/backend
-npm install
+cp packages/backend/.env.example packages/backend/.env
+cp packages/frontend/.env.example packages/frontend/.env
+```
+
+2. Set a strong JWT secret in `packages/backend/.env`:
+
+```bash
+JWT_SECRET=change-me-to-a-long-random-string
+```
+
+3. Run the stack:
+
+```bash
 npm run dev
 ```
 
-### Frontend Development
-```bash
-cd packages/frontend
-npm install
-npm run dev
-```
+4. Open:
+- Frontend: http://localhost:3000
+- Backend: http://localhost:3001/health
 
-### Database Management
-```bash
-cd packages/backend
-npx prisma migrate dev
-npx prisma studio
-```
-
-## Testing
+## Run Without Docker (Optional)
+Terminal 1:
 
 ```bash
-# Backend tests
-cd packages/backend && npm test
-
-# Frontend tests
-cd packages/frontend && npm test
+npm run dev:backend
 ```
 
-## Production Deployment
+Terminal 2:
 
-For production deployment, consider:
-- Using managed PostgreSQL service
-- Implementing proper secret management
-- Setting up SSL/TLS certificates
-- Configuring reverse proxy (nginx)
-- Implementing proper logging and monitoring
+```bash
+npm run dev:frontend
+```
 
-## Security Considerations
+## Minimal API
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/policy-templates`
+- `GET /api/policies`
+- `POST /api/policies`
+- `GET /api/sandboxes`
+- `POST /api/sandboxes`
+- `GET /api/sandboxes/:id`
+- `POST /api/sandboxes/:id/stop`
+- `GET /api/sandboxes/:id/events`
+- `GET /api/sandboxes/:id/events/stream`
+- `POST /api/threat-analysis`
 
-- All API endpoints require authentication
-- Input validation on all user inputs
-- SQL injection protection via Prisma ORM
-- Rate limiting on API endpoints
-- CORS configuration for frontend access
-
-## License
-
-MIT License
+## Notes
+- Sandbox execution requires Docker access. If Docker is not available, the API will still run but sandbox start will fail.
+- This is an MVP intended for local use. Production hardening is out of scope.

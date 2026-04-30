@@ -60,6 +60,12 @@ function apiBase(): string {
   return v?.replace(/\/$/, '') ?? '';
 }
 
+function buildAbsoluteUrl(path: string): URL {
+  const base = apiBase();
+  const origin = base || window.location.origin;
+  return new URL(path, origin);
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: HeadersInit = {
@@ -144,7 +150,7 @@ export async function threatAnalysis(sandboxId: string): Promise<ThreatAnalysis>
 
 export function sandboxEventsStreamUrl(sandboxId: string): string {
   const token = getToken();
-  const url = new URL(`${apiBase()}/api/sandboxes/${encodeURIComponent(sandboxId)}/events/stream`);
+  const url = buildAbsoluteUrl(`/api/sandboxes/${encodeURIComponent(sandboxId)}/events/stream`);
   if (token) url.searchParams.set('token', token);
   return url.toString();
 }
@@ -166,7 +172,7 @@ export async function monitoringHistory(limit = 50): Promise<Sandbox[]> {
 
 export function monitoringStreamUrl(): string {
   const token = getToken();
-  const url = new URL(`${apiBase()}/api/monitoring/stream`);
+  const url = buildAbsoluteUrl('/api/monitoring/stream');
   if (token) url.searchParams.set('token', token);
   return url.toString();
 }

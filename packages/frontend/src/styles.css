@@ -107,6 +107,11 @@ a {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji';
 }
 
+.auth-shell,
+.auth-shell * {
+  box-sizing: border-box;
+}
+
 .auth-bg {
   position: absolute;
   inset: 0;
@@ -358,6 +363,7 @@ a {
 
 .auth-input {
   width: 100%;
+  max-width: 100%;
   border-radius: 14px;
   padding: 11px 12px;
   font-size: 14px;

@@ -19,7 +19,7 @@ import {
 } from './db/mcp';
 import {subscribeToSandboxEvents} from './events/bus';
 import {analyzeThreat} from './threat/scoring';
-import {parseToolsFromImport, runDriftChecks, runStaticChecks} from './mcp/scanner';
+import {parseToolsFromImport, runDriftChecks, runServerChecks, runStaticChecks} from './mcp/scanner';
 
 function requireAuth(req: FastifyRequest, reply: FastifyReply): {id: string; role: 'admin' | 'user'} | null {
   if (req.authUser) return req.authUser;
@@ -526,10 +526,11 @@ export function registerRoutes(app: FastifyInstance) {
     const prevSnapshot = prevScans[0]?.toolsSnapshot ?? null;
 
     const currentSnapshot = tools.map((t) => ({name: t.name, toolHash: t.toolHash}));
+    const serverFindings = runServerChecks({environment: server.environment, endpoint: server.endpoint, authType: server.authType});
     const staticFindings = runStaticChecks(tools.map((t) => ({name: t.name, description: t.description, inputSchema: t.inputSchema})));
     const driftFindings = runDriftChecks({prevSnapshot, currentSnapshot});
 
-    const all = staticFindings.concat(driftFindings);
+    const all = serverFindings.concat(staticFindings).concat(driftFindings);
     const counts = {low: 0, medium: 0, high: 0};
     for (const f of all) counts[f.severity] += 1;
     const score = Math.min(100, counts.high * 40 + counts.medium * 15 + counts.low * 5);

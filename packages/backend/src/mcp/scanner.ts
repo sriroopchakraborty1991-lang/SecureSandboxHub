@@ -19,7 +19,22 @@ export function parseToolsFromImport(input: unknown): ImportedTool[] {
   if (!input || typeof input !== 'object') throw new Error('invalid_manifest');
 
   const anyInput = input as any;
-  const tools = Array.isArray(anyInput.tools) ? anyInput.tools : Array.isArray(anyInput) ? anyInput : null;
+  const tools =
+    Array.isArray(anyInput.tools)
+      ? anyInput.tools
+      : Array.isArray(anyInput?.capabilities?.tools)
+        ? anyInput.capabilities.tools
+        : Array.isArray(anyInput?.server?.tools)
+          ? anyInput.server.tools
+          : Array.isArray(anyInput?.mcp?.tools)
+            ? anyInput.mcp.tools
+            : Array.isArray(anyInput?.toolset?.tools)
+              ? anyInput.toolset.tools
+              : Array.isArray(anyInput?.functions)
+                ? anyInput.functions
+                : Array.isArray(anyInput)
+                  ? anyInput
+                  : null;
   if (!tools) throw new Error('invalid_manifest');
 
   const out: ImportedTool[] = [];
@@ -41,6 +56,61 @@ function severityMax(a: McpFindingSeverity, b: McpFindingSeverity): McpFindingSe
   return v(a) >= v(b) ? a : b;
 }
 
+function isLocalEndpoint(endpoint: string): boolean {
+  const e = endpoint.trim().toLowerCase();
+  return e.includes('localhost') || e.includes('127.0.0.1') || e.startsWith('unix:') || e.startsWith('/') || e.startsWith('stdio:');
+}
+
+export function runServerChecks(input: {environment: 'local' | 'dev' | 'staging' | 'prod'; endpoint: string; authType: 'none' | 'token'}): ScanFinding[] {
+  const findings: ScanFinding[] = [];
+  const env = input.environment;
+  const endpoint = input.endpoint ?? '';
+  const ep = endpoint.trim().toLowerCase();
+
+  if (env !== 'local' && input.authType === 'none') {
+    findings.push({
+      severity: 'high',
+      category: 'server_auth',
+      title: 'Missing authentication for non-local MCP server',
+      toolName: null,
+      evidence: {environment: env, authType: input.authType},
+      recommendation: 'Require authentication (token/OAuth) before allowing access to non-local MCP servers to reduce anonymous abuse.'
+    });
+  }
+
+  if (env !== 'local' && !isLocalEndpoint(endpoint) && ep.startsWith('http://')) {
+    findings.push({
+      severity: 'medium',
+      category: 'transport',
+      title: 'Insecure MCP server endpoint transport (HTTP)',
+      toolName: null,
+      evidence: {environment: env, endpoint},
+      recommendation: 'Use HTTPS for non-local MCP servers to protect data in transit and prevent MITM risks.'
+    });
+  }
+
+  return findings;
+}
+
+function listSchemaPropertyNames(schema: any): string[] {
+  if (!schema || typeof schema !== 'object') return [];
+  const properties = schema.properties;
+  if (!properties || typeof properties !== 'object') return [];
+  return Object.keys(properties);
+}
+
+function getSchemaProperty(schema: any, name: string): any | null {
+  if (!schema || typeof schema !== 'object') return null;
+  const properties = schema.properties;
+  if (!properties || typeof properties !== 'object') return null;
+  return (properties as any)[name] ?? null;
+}
+
+function hasValueConstraints(prop: any): boolean {
+  if (!prop || typeof prop !== 'object') return false;
+  return Boolean(prop.enum || prop.pattern || prop.const || prop.format || prop.minimum || prop.maximum);
+}
+
 export function runStaticChecks(tools: Array<{name: string; description: string | null; inputSchema: unknown | null}>): ScanFinding[] {
   const findings: ScanFinding[] = [];
 
@@ -55,6 +125,9 @@ export function runStaticChecks(tools: Array<{name: string; description: string 
     {w: 'curl', sev: 'medium' as const},
     {w: 'wget', sev: 'medium' as const}
   ];
+
+  const secretParamWords = ['secret', 'token', 'apikey', 'api_key', 'password', 'credential', 'privatekey', 'private_key'];
+  const networkWords = ['fetch', 'request', 'download', 'http', 'https', 'url', 'webhook'];
 
   for (const t of tools) {
     const desc = (t.description ?? '').toLowerCase();
@@ -102,6 +175,68 @@ export function runStaticChecks(tools: Array<{name: string; description: string 
           evidence: {tool: t.name, params: matched},
           recommendation: 'Constrain these parameters (allowed prefixes/domains/commands) and add server-side validation.'
         });
+      }
+
+      const s = schema as any;
+      const propNames = listSchemaPropertyNames(s).map((p) => p.toLowerCase());
+
+      const secretHits = propNames.filter((p) => secretParamWords.some((w) => p.includes(w)));
+      if (secretHits.length) {
+        findings.push({
+          severity: 'high',
+          category: 'secrets',
+          title: 'Schema requests sensitive secret-like parameters',
+          toolName: t.name,
+          evidence: {tool: t.name, params: secretHits},
+          recommendation: 'Avoid passing secrets through tool parameters when possible; ensure redaction/masking in logs and use secure storage mechanisms.'
+        });
+      }
+
+      const isObjectSchema = String(s.type ?? '').toLowerCase() === 'object' || Boolean(s.properties);
+      if (isObjectSchema) {
+        const hasProps = Boolean(s.properties) && typeof s.properties === 'object' && Object.keys(s.properties).length > 0;
+        const addl = typeof s.additionalProperties === 'undefined' ? true : Boolean(s.additionalProperties);
+        if (!hasProps && addl) {
+          findings.push({
+            severity: 'medium',
+            category: 'input_validation',
+            title: 'Schema allows unbounded object inputs',
+            toolName: t.name,
+            evidence: {tool: t.name, additionalProperties: s.additionalProperties ?? 'default:true'},
+            recommendation: 'Define explicit properties and set additionalProperties=false to reduce injection and malformed input risks.'
+          });
+        }
+      }
+
+      const urlLike = propNames.filter((p) => p === 'url' || p.endsWith('_url') || p.includes('uri') || p.includes('host'));
+      const looksNetworkTool = networkWords.some((w) => desc.includes(w)) || networkWords.some((w) => t.name.toLowerCase().includes(w));
+      if (looksNetworkTool && urlLike.length) {
+        const constrained = urlLike.some((p) => hasValueConstraints(getSchemaProperty(s, p)));
+        if (!constrained) {
+          findings.push({
+            severity: 'high',
+            category: 'ssrf',
+            title: 'Potential SSRF risk: URL/host parameter lacks constraints',
+            toolName: t.name,
+            evidence: {tool: t.name, params: urlLike},
+            recommendation: 'Add allowlists (domains/schemes), deny private IP ranges, and enforce strict URL parsing and validation.'
+          });
+        }
+      }
+
+      const cmdLike = propNames.filter((p) => p === 'command' || p === 'cmd' || p.includes('shell'));
+      if (cmdLike.length) {
+        const constrained = cmdLike.some((p) => hasValueConstraints(getSchemaProperty(s, p)));
+        if (!constrained) {
+          findings.push({
+            severity: 'high',
+            category: 'command_execution',
+            title: 'Potential command injection risk: command parameter lacks constraints',
+            toolName: t.name,
+            evidence: {tool: t.name, params: cmdLike},
+            recommendation: 'Avoid raw shell execution. If unavoidable, constrain commands via allowlists/enum and implement robust server-side validation.'
+          });
+        }
       }
     }
   }
@@ -160,4 +295,3 @@ export function runDriftChecks(input: {
 
   return findings;
 }
-

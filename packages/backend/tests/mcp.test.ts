@@ -114,3 +114,40 @@ test('mcp drift detection flags tool changes', async () => {
   await app.close();
 });
 
+test('mcp server transport/auth checks are emitted for non-local env', async () => {
+  const dbPath = `/tmp/ssh_mcp_server_${Date.now()}.db`;
+  const db = openDb(dbPath);
+  initSchema(db);
+
+  const runner = {async startSandbox() {return 'c1';}, async stopSandbox() {}} as any;
+  const app = buildApp({db, runner, jwtSecret: 'change-me-to-a-long-random-string'});
+  await app.ready();
+
+  const reg = await app.inject({method: 'POST', url: '/api/auth/register', payload: {email: `u_${Date.now()}@example.com`, password: 'password1234'}});
+  const token = (reg.json() as any).token as string;
+
+  const createServer = await app.inject({
+    method: 'POST',
+    url: '/api/mcp/servers',
+    headers: {authorization: `Bearer ${token}`},
+    payload: {name: 'Prod MCP', environment: 'prod', endpoint: 'http://example.com', authType: 'none'}
+  });
+  const serverId = (createServer.json() as any).server.id as string;
+
+  await app.inject({
+    method: 'POST',
+    url: `/api/mcp/servers/${serverId}/tools/import`,
+    headers: {authorization: `Bearer ${token}`},
+    payload: {tools: [{name: 't1', description: 'fetch url', inputSchema: {type: 'object', properties: {url: {type: 'string'}}}}]}
+  });
+
+  const scan = await app.inject({method: 'POST', url: `/api/mcp/servers/${serverId}/scan`, headers: {authorization: `Bearer ${token}`}});
+  assert.equal(scan.statusCode, 200);
+  const scanJson = scan.json() as any;
+  const titles = (scanJson.findings as Array<any>).map((f) => f.title as string);
+
+  assert.ok(titles.some((t) => t.includes('Missing authentication')));
+  assert.ok(titles.some((t) => t.includes('Insecure MCP server endpoint transport')));
+
+  await app.close();
+});

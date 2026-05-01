@@ -1,9 +1,11 @@
 import React from 'react';
-import {Link} from 'react-router-dom';
-import {createMcpServer, listMcpServers, type McpServer} from '../services/api';
+import {Link, useNavigate} from 'react-router-dom';
+import {createMcpServer, getMcpOverview, listMcpServers, runMcpScan, type McpOverview, type McpServer} from '../services/api';
 
 export default function McpServersPage() {
+  const nav = useNavigate();
   const [servers, setServers] = React.useState<McpServer[]>([]);
+  const [overview, setOverview] = React.useState<McpOverview | null>(null);
   const [name, setName] = React.useState('');
   const [environment, setEnvironment] = React.useState<McpServer['environment']>('local');
   const [endpoint, setEndpoint] = React.useState('');
@@ -14,7 +16,9 @@ export default function McpServersPage() {
   const [loading, setLoading] = React.useState(false);
 
   const refresh = React.useCallback(async () => {
-    setServers(await listMcpServers());
+    const [s, o] = await Promise.all([listMcpServers(), getMcpOverview()]);
+    setServers(s);
+    setOverview(o);
   }, []);
 
   React.useEffect(() => {
@@ -25,7 +29,107 @@ export default function McpServersPage() {
     <div className="stack">
       <div>
         <div style={{fontSize: 20, fontWeight: 800}}>MCP Security Testing</div>
-        <div className="muted">Register MCP servers, import tools, and run security scans (static + drift).</div>
+        <div className="muted">Register MCP servers, import tools, run scans, and download reports (JSON + PDF).</div>
+      </div>
+
+      <div className="card">
+        <div className="stack">
+          <div className="row" style={{justifyContent: 'space-between'}}>
+            <div style={{fontWeight: 700}}>Scan reports</div>
+            <div className="muted">recent: {overview?.recentScans?.length ?? 0}</div>
+          </div>
+
+          {!overview ? (
+            <div className="muted">Loading…</div>
+          ) : overview.recentScans.length === 0 ? (
+            <div className="muted">No scans yet. Import tools for a server, then run a scan.</div>
+          ) : (
+            <div className="stack">
+              {overview.recentScans.slice(0, 8).map((s) => (
+                <div key={s.id} className="row" style={{justifyContent: 'space-between', alignItems: 'center'}}>
+                  <Link to={`/mcp/scans/${s.id}`} className="mono">
+                    {s.id}
+                  </Link>
+                  <div className="row">
+                    <span className="badge">{String((s.summary as any)?.level ?? 'unknown')}</span>
+                    <Link className="btn" to={`/mcp/scans/${s.id}`}>
+                      View / PDF
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="stack">
+          <div className="row" style={{justifyContent: 'space-between'}}>
+            <div style={{fontWeight: 700}}>Registered servers</div>
+            <div className="muted">count: {servers.length}</div>
+          </div>
+
+          {servers.length === 0 ? (
+            <div className="stack">
+              <div className="muted">No MCP servers yet.</div>
+              <div className="muted" style={{fontSize: 13}}>
+                Create a server below, then click Open → import tools → Run scan to generate the report.
+              </div>
+            </div>
+          ) : (
+            <div className="stack">
+              {servers.map((s) => (
+                <div key={s.id} className="card" style={{padding: 12}}>
+                  <div className="row" style={{justifyContent: 'space-between', alignItems: 'flex-start'}}>
+                    <div className="stack" style={{gap: 4}}>
+                      <Link to={`/mcp/servers/${s.id}`} style={{fontWeight: 800}}>
+                        {s.name}
+                      </Link>
+                      <div className="muted mono" style={{fontSize: 13}}>
+                        {s.id}
+                      </div>
+                      <div className="muted" style={{fontSize: 13}}>
+                        env: <span className="badge">{s.environment}</span> · auth: <span className="badge">{s.authType}</span>
+                      </div>
+                      <div className="row" style={{marginTop: 6}}>
+                        <Link className="btn secondary" to={`/mcp/servers/${s.id}`}>
+                          Open
+                        </Link>
+                        <button
+                          className="btn"
+                          onClick={async () => {
+                            setLoading(true);
+                            setError(null);
+                            try {
+                              const res = await runMcpScan(s.id);
+                              nav(`/mcp/scans/${res.scan.id}`);
+                            } catch (e: any) {
+                              setError(String(e?.message ?? e));
+                            } finally {
+                              setLoading(false);
+                            }
+                          }}
+                        >
+                          Run scan
+                        </button>
+                      </div>
+                    </div>
+                    <div className="stack" style={{gap: 6, alignItems: 'flex-end'}}>
+                      <div className="muted" style={{fontSize: 13}}>
+                        endpoint:
+                      </div>
+                      <div className="mono" style={{maxWidth: 420, wordBreak: 'break-word', textAlign: 'right'}}>
+                        {s.endpoint}
+                      </div>
+                      {s.ownerTag ? <span className="badge">owner:{s.ownerTag}</span> : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card">
@@ -99,49 +203,6 @@ export default function McpServersPage() {
           </div>
         </div>
       </div>
-
-      <div className="card">
-        <div className="stack">
-          <div className="row" style={{justifyContent: 'space-between'}}>
-            <div style={{fontWeight: 700}}>Registered servers</div>
-            <div className="muted">count: {servers.length}</div>
-          </div>
-
-          {servers.length === 0 ? (
-            <div className="muted">No MCP servers yet.</div>
-          ) : (
-            <div className="stack">
-              {servers.map((s) => (
-                <div key={s.id} className="card" style={{padding: 12}}>
-                  <div className="row" style={{justifyContent: 'space-between', alignItems: 'flex-start'}}>
-                    <div className="stack" style={{gap: 4}}>
-                      <Link to={`/mcp/servers/${s.id}`} style={{fontWeight: 800}}>
-                        {s.name}
-                      </Link>
-                      <div className="muted mono" style={{fontSize: 13}}>
-                        {s.id}
-                      </div>
-                      <div className="muted" style={{fontSize: 13}}>
-                        env: <span className="badge">{s.environment}</span> · auth: <span className="badge">{s.authType}</span>
-                      </div>
-                    </div>
-                    <div className="stack" style={{gap: 6, alignItems: 'flex-end'}}>
-                      <div className="muted" style={{fontSize: 13}}>
-                        endpoint:
-                      </div>
-                      <div className="mono" style={{maxWidth: 420, wordBreak: 'break-word', textAlign: 'right'}}>
-                        {s.endpoint}
-                      </div>
-                      {s.ownerTag ? <span className="badge">owner:{s.ownerTag}</span> : null}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
-

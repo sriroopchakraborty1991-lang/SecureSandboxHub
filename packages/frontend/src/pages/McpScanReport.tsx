@@ -1,6 +1,6 @@
 import React from 'react';
 import {Link, useParams} from 'react-router-dom';
-import {getMcpScan, mcpFindingsDownloadUrl, type McpFinding, type McpScan} from '../services/api';
+import {getMcpScan, type McpFinding, type McpScan} from '../services/api';
 
 function fmtTs(ts: number): string {
   return new Date(ts).toLocaleString();
@@ -45,9 +45,23 @@ export default function McpScanReportPage() {
           </div>
         </div>
         <div className="row">
-          <a className="btn secondary" href={mcpFindingsDownloadUrl(scanId)}>
+          <button
+            className="btn secondary"
+            disabled={!scan}
+            onClick={() => {
+              if (!scan) return;
+              const payload = JSON.stringify({scan, findings}, null, 2);
+              const blob = new Blob([payload], {type: 'application/json'});
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `mcp-findings-${scanId}.json`;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 0);
+            }}
+          >
             Download findings.json
-          </a>
+          </button>
           <button className="btn" onClick={() => window.print()}>
             Print / Save PDF
           </button>
@@ -119,4 +133,3 @@ export default function McpScanReportPage() {
     </div>
   );
 }
-

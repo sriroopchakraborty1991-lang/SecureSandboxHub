@@ -1,6 +1,6 @@
-# SecureSandboxHub
+# Golem
 
-SecureSandboxHub is a small “sandbox security platform” you can run locally: create security policies, start sandbox sessions as Docker containers, monitor events live, and compute a simple deterministic risk score.
+Golem is a local-first MCP security testing workbench you can run locally: register MCP servers, import tool manifests, run lightweight scans (static + drift), export findings, and optionally run Docker sandboxes with policies and monitoring.
 
 ## What You Can Do
 - **Policies**: Define safe runtime constraints (network on/off, CPU, memory, read-only root FS).

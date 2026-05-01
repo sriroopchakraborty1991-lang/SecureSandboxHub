@@ -1,6 +1,6 @@
 # Security Notes (MVP)
 
-SecureSandboxHub is intended for local use as an MVP. The security model focuses on safe defaults, not production hardening.
+Golem is intended for local use as an MVP. The security model focuses on safe defaults, not production hardening.
 
 ## Runtime Isolation
 - Sandbox sessions run as Docker containers via the backend.

@@ -24,6 +24,9 @@ export default function Layout(props: {children: React.ReactNode}) {
                   <Link to="/monitoring" style={active('/monitoring')}>
                     Monitoring
                   </Link>
+                  <Link to="/mcp" style={active('/mcp')}>
+                    MCP Testing
+                  </Link>
                   <Link to="/policies" style={active('/policies')}>
                     Policies
                   </Link>

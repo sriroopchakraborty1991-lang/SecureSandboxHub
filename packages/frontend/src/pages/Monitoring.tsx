@@ -1,6 +1,16 @@
 import React from 'react';
 import {Link} from 'react-router-dom';
-import {monitoringAlerts, monitoringHistory, monitoringSessions, monitoringStreamUrl, type MonitoringSession, type Sandbox, type SandboxEvent} from '../services/api';
+import {
+  getMcpOverview,
+  monitoringAlerts,
+  monitoringHistory,
+  monitoringSessions,
+  monitoringStreamUrl,
+  type McpOverview,
+  type MonitoringSession,
+  type Sandbox,
+  type SandboxEvent
+} from '../services/api';
 
 function fmtTs(ts: number): string {
   return new Date(ts).toLocaleString();
@@ -17,12 +27,14 @@ export default function MonitoringPage() {
   const [sessions, setSessions] = React.useState<MonitoringSession[]>([]);
   const [alerts, setAlerts] = React.useState<SandboxEvent[]>([]);
   const [history, setHistory] = React.useState<Sandbox[]>([]);
+  const [mcp, setMcp] = React.useState<McpOverview | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   const refreshSidePanels = React.useCallback(async () => {
-    const [a, h] = await Promise.all([monitoringAlerts(50), monitoringHistory(50)]);
+    const [a, h, m] = await Promise.all([monitoringAlerts(50), monitoringHistory(50), getMcpOverview()]);
     setAlerts(a);
     setHistory(h);
+    setMcp(m);
   }, []);
 
   const refreshSessionsOnce = React.useCallback(async () => {
@@ -141,6 +153,58 @@ export default function MonitoringPage() {
           <div className="card">
             <div className="stack">
               <div className="row" style={{justifyContent: 'space-between'}}>
+                <div style={{fontWeight: 700}}>MCP Security</div>
+                <div className="muted">servers: {mcp?.serversCount ?? 0}</div>
+              </div>
+
+              {!mcp ? (
+                <div className="muted">Loading…</div>
+              ) : (
+                <>
+                  <div className="stack" style={{gap: 8}}>
+                    <div className="muted">Recent scans</div>
+                    {mcp.recentScans.length === 0 ? (
+                      <div className="muted">No scans yet.</div>
+                    ) : (
+                      mcp.recentScans.slice(0, 5).map((s) => (
+                        <div key={s.id} className="row" style={{justifyContent: 'space-between'}}>
+                          <Link to={`/mcp/scans/${s.id}`} className="mono">
+                            {s.id.slice(0, 8)}…
+                          </Link>
+                          <span className="badge">{String((s.summary as any)?.level ?? 'unknown')}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="stack" style={{gap: 8}}>
+                    <div className="muted">Recent findings</div>
+                    {mcp.recentFindings.length === 0 ? (
+                      <div className="muted">No findings yet.</div>
+                    ) : (
+                      mcp.recentFindings.slice(0, 5).map((f) => (
+                        <div key={f.id} style={{borderBottom: '1px solid #e2e8f0', paddingBottom: 6}}>
+                          <div className="row" style={{justifyContent: 'space-between'}}>
+                            <span className="badge">{f.severity}</span>
+                            <Link to={`/mcp/scans/${f.scanId}`} className="mono">
+                              {f.scanId.slice(0, 8)}…
+                            </Link>
+                          </div>
+                          <div className="muted" style={{fontSize: 13, marginTop: 6}}>
+                            {f.title}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="stack">
+              <div className="row" style={{justifyContent: 'space-between'}}>
                 <div style={{fontWeight: 700}}>Alerts</div>
                 <div className="muted">Last {alerts.length}</div>
               </div>
@@ -202,4 +266,3 @@ export default function MonitoringPage() {
     </div>
   );
 }
-

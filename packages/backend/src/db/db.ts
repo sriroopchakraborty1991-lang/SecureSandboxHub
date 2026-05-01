@@ -50,6 +50,51 @@ export function initSchema(db: Db): void {
       message TEXT NOT NULL,
       meta_json TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      environment TEXT NOT NULL,
+      endpoint TEXT NOT NULL,
+      auth_type TEXT NOT NULL,
+      auth_token TEXT,
+      owner_tag TEXT,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_tools (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      input_schema_json TEXT,
+      tool_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      UNIQUE(server_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_scans (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      summary_json TEXT NOT NULL,
+      tools_snapshot_json TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS mcp_findings (
+      id TEXT PRIMARY KEY,
+      scan_id TEXT NOT NULL,
+      server_id TEXT NOT NULL,
+      tool_name TEXT,
+      severity TEXT NOT NULL,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      evidence_json TEXT,
+      recommendation TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
 }
-

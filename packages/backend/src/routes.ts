@@ -5,8 +5,21 @@ import {createUser, getUserByEmail} from './db/users';
 import {createPolicy, getPolicyById, listPolicies, policyTemplates, type PolicyRules} from './db/policies';
 import {createSandbox, getSandboxById, listSandboxes, setSandboxContainerId, setSandboxStatus} from './db/sandboxes';
 import {appendEvent, getLastEventTs, listEvents, listRecentAlerts, type SandboxEvent} from './db/events';
+import {
+  createMcpScan,
+  createMcpServer,
+  insertMcpFindings,
+  listMcpFindingsByScan,
+  listMcpScans,
+  listMcpServers,
+  listMcpTools,
+  listRecentMcpFindings,
+  upsertMcpTools,
+  type McpFinding
+} from './db/mcp';
 import {subscribeToSandboxEvents} from './events/bus';
 import {analyzeThreat} from './threat/scoring';
+import {parseToolsFromImport, runDriftChecks, runStaticChecks} from './mcp/scanner';
 
 function requireAuth(req: FastifyRequest, reply: FastifyReply): {id: string; role: 'admin' | 'user'} | null {
   if (req.authUser) return req.authUser;
@@ -416,5 +429,189 @@ export function registerRoutes(app: FastifyInstance) {
     });
 
     return reply;
+  });
+
+  app.get('/api/mcp/servers', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    return reply.send({servers: listMcpServers(app.db, auth.id)});
+  });
+
+  app.post('/api/mcp/servers', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+
+    const schema = Joi.object({
+      name: Joi.string().min(1).max(200).required(),
+      environment: Joi.string().valid('local', 'dev', 'staging', 'prod').required(),
+      endpoint: Joi.string().min(1).max(500).required(),
+      authType: Joi.string().valid('none', 'token').required(),
+      authToken: Joi.string().allow('', null).optional(),
+      ownerTag: Joi.string().allow('', null).max(200).optional()
+    });
+
+    const {value, error} = schema.validate(req.body);
+    if (error) return reply.code(400).send({error: error.message});
+
+    const server = createMcpServer(app.db, {
+      name: value.name,
+      environment: value.environment,
+      endpoint: value.endpoint,
+      authType: value.authType,
+      authToken: value.authType === 'token' ? (value.authToken ? String(value.authToken) : null) : null,
+      ownerTag: value.ownerTag ? String(value.ownerTag) : null,
+      createdBy: auth.id
+    });
+
+    return reply.send({server});
+  });
+
+  app.get('/api/mcp/servers/:id', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const schema = Joi.object({id: Joi.string().required()});
+    const {value, error} = schema.validate(req.params);
+    if (error) return reply.code(400).send({error: error.message});
+
+    const servers = listMcpServers(app.db, auth.id);
+    const server = servers.find((s) => s.id === value.id) ?? null;
+    if (!server) return reply.code(404).send({error: 'mcp_server_not_found'});
+
+    const tools = listMcpTools(app.db, server.id, auth.id);
+    const scans = listMcpScans(app.db, auth.id, server.id).slice(0, 20);
+    return reply.send({server, tools, scans});
+  });
+
+  app.post('/api/mcp/servers/:id/tools/import', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const schema = Joi.object({id: Joi.string().required()});
+    const {value: params, error: pErr} = schema.validate(req.params);
+    if (pErr) return reply.code(400).send({error: pErr.message});
+
+    let toolsInput: any = null;
+    try {
+      toolsInput = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    } catch {
+      return reply.code(400).send({error: 'invalid_json'});
+    }
+
+    let tools;
+    try {
+      tools = parseToolsFromImport(toolsInput);
+    } catch (e: any) {
+      return reply.code(400).send({error: String(e?.message ?? e)});
+    }
+
+    const res = upsertMcpTools(app.db, {serverId: params.id, createdBy: auth.id, tools});
+    const updatedTools = listMcpTools(app.db, params.id, auth.id);
+    return reply.send({result: res, tools: updatedTools});
+  });
+
+  app.post('/api/mcp/servers/:id/scan', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const schema = Joi.object({id: Joi.string().required()});
+    const {value: params, error: pErr} = schema.validate(req.params);
+    if (pErr) return reply.code(400).send({error: pErr.message});
+
+    const servers = listMcpServers(app.db, auth.id);
+    const server = servers.find((s) => s.id === params.id) ?? null;
+    if (!server) return reply.code(404).send({error: 'mcp_server_not_found'});
+
+    const tools = listMcpTools(app.db, server.id, auth.id);
+    if (tools.length === 0) return reply.code(400).send({error: 'no_tools'});
+
+    const prevScans = listMcpScans(app.db, auth.id, server.id);
+    const prevSnapshot = prevScans[0]?.toolsSnapshot ?? null;
+
+    const currentSnapshot = tools.map((t) => ({name: t.name, toolHash: t.toolHash}));
+    const staticFindings = runStaticChecks(tools.map((t) => ({name: t.name, description: t.description, inputSchema: t.inputSchema})));
+    const driftFindings = runDriftChecks({prevSnapshot, currentSnapshot});
+
+    const all = staticFindings.concat(driftFindings);
+    const counts = {low: 0, medium: 0, high: 0};
+    for (const f of all) counts[f.severity] += 1;
+    const score = Math.min(100, counts.high * 40 + counts.medium * 15 + counts.low * 5);
+    const level = score >= 60 ? 'high' : score >= 30 ? 'medium' : 'low';
+
+    const scan = createMcpScan(app.db, {
+      serverId: server.id,
+      createdBy: auth.id,
+      summary: {
+        serverId: server.id,
+        serverName: server.name,
+        toolCount: tools.length,
+        findingCount: all.length,
+        severityCounts: counts,
+        score,
+        level,
+        hasBaseline: Boolean(prevSnapshot)
+      },
+      toolsSnapshot: currentSnapshot
+    });
+
+    const toDb: Array<Omit<McpFinding, 'id' | 'createdAt'>> = all.map((f) => ({
+      scanId: scan.id,
+      serverId: server.id,
+      toolName: f.toolName,
+      severity: f.severity,
+      category: f.category,
+      title: f.title,
+      evidence: f.evidence,
+      recommendation: f.recommendation
+    }));
+
+    insertMcpFindings(app.db, toDb);
+    return reply.send({scan, findings: listMcpFindingsByScan(app.db, scan.id, auth.id)});
+  });
+
+  app.get('/api/mcp/scans', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const qSchema = Joi.object({serverId: Joi.string().optional()});
+    const {value: q, error} = qSchema.validate(req.query);
+    if (error) return reply.code(400).send({error: error.message});
+    return reply.send({scans: listMcpScans(app.db, auth.id, q.serverId)});
+  });
+
+  app.get('/api/mcp/scans/:id', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const schema = Joi.object({id: Joi.string().required()});
+    const {value, error} = schema.validate(req.params);
+    if (error) return reply.code(400).send({error: error.message});
+    const scans = listMcpScans(app.db, auth.id);
+    const scan = scans.find((s) => s.id === value.id) ?? null;
+    if (!scan) return reply.code(404).send({error: 'scan_not_found'});
+    const findings = listMcpFindingsByScan(app.db, scan.id, auth.id);
+    return reply.send({scan, findings});
+  });
+
+  app.get('/api/mcp/scans/:id/findings.json', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+    const schema = Joi.object({id: Joi.string().required()});
+    const {value, error} = schema.validate(req.params);
+    if (error) return reply.code(400).send({error: error.message});
+    const scans = listMcpScans(app.db, auth.id);
+    const scan = scans.find((s) => s.id === value.id) ?? null;
+    if (!scan) return reply.code(404).send({error: 'scan_not_found'});
+    const findings = listMcpFindingsByScan(app.db, scan.id, auth.id);
+
+    reply.header('Content-Type', 'application/json');
+    reply.header('Content-Disposition', `attachment; filename="mcp-findings-${scan.id}.json"`);
+    return reply.send({scan, findings});
+  });
+
+  app.get('/api/mcp/overview', async (req, reply) => {
+    const auth = requireAuth(req, reply);
+    if (!auth) return;
+
+    const servers = listMcpServers(app.db, auth.id);
+    const findings = listRecentMcpFindings(app.db, auth.id, 20);
+    const scans = listMcpScans(app.db, auth.id).slice(0, 20);
+
+    return reply.send({serversCount: servers.length, recentScans: scans, recentFindings: findings});
   });
 }

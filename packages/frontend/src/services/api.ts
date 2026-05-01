@@ -44,6 +44,56 @@ export type MonitoringSession = {
   warnings: string[];
 };
 
+export type McpServer = {
+  id: string;
+  name: string;
+  environment: 'local' | 'dev' | 'staging' | 'prod';
+  endpoint: string;
+  authType: 'none' | 'token';
+  ownerTag: string | null;
+  createdBy: string;
+  createdAt: number;
+};
+
+export type McpTool = {
+  id: string;
+  serverId: string;
+  name: string;
+  description: string | null;
+  inputSchema: unknown | null;
+  toolHash: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type McpScan = {
+  id: string;
+  serverId: string;
+  createdBy: string;
+  createdAt: number;
+  summary: Record<string, unknown>;
+  toolsSnapshot: Array<{name: string; toolHash: string}>;
+};
+
+export type McpFinding = {
+  id: string;
+  scanId: string;
+  serverId: string;
+  toolName: string | null;
+  severity: 'low' | 'medium' | 'high';
+  category: string;
+  title: string;
+  evidence: Record<string, unknown> | null;
+  recommendation: string;
+  createdAt: number;
+};
+
+export type McpOverview = {
+  serversCount: number;
+  recentScans: McpScan[];
+  recentFindings: McpFinding[];
+};
+
 const tokenKey = 'ssh.token';
 
 export function getToken(): string | null {
@@ -175,4 +225,51 @@ export function monitoringStreamUrl(): string {
   const url = buildAbsoluteUrl('/api/monitoring/stream');
   if (token) url.searchParams.set('token', token);
   return url.toString();
+}
+
+export async function listMcpServers(): Promise<McpServer[]> {
+  const res = await request<{servers: McpServer[]}>('/api/mcp/servers');
+  return res.servers;
+}
+
+export async function createMcpServer(input: {
+  name: string;
+  environment: McpServer['environment'];
+  endpoint: string;
+  authType: McpServer['authType'];
+  authToken?: string | null;
+  ownerTag?: string | null;
+}): Promise<McpServer> {
+  const res = await request<{server: McpServer}>('/api/mcp/servers', {method: 'POST', body: JSON.stringify(input)});
+  return res.server;
+}
+
+export async function getMcpServer(id: string): Promise<{server: McpServer; tools: McpTool[]; scans: McpScan[]}> {
+  return await request<{server: McpServer; tools: McpTool[]; scans: McpScan[]}>(`/api/mcp/servers/${encodeURIComponent(id)}`);
+}
+
+export async function importMcpTools(serverId: string, manifest: unknown): Promise<{result: {created: number; updated: number; total: number}; tools: McpTool[]}> {
+  return await request<{result: {created: number; updated: number; total: number}; tools: McpTool[]}>(`/api/mcp/servers/${encodeURIComponent(serverId)}/tools/import`, {
+    method: 'POST',
+    body: JSON.stringify(manifest)
+  });
+}
+
+export async function runMcpScan(serverId: string): Promise<{scan: McpScan; findings: McpFinding[]}> {
+  return await request<{scan: McpScan; findings: McpFinding[]}>(`/api/mcp/servers/${encodeURIComponent(serverId)}/scan`, {method: 'POST'});
+}
+
+export async function getMcpScan(scanId: string): Promise<{scan: McpScan; findings: McpFinding[]}> {
+  return await request<{scan: McpScan; findings: McpFinding[]}>(`/api/mcp/scans/${encodeURIComponent(scanId)}`);
+}
+
+export function mcpFindingsDownloadUrl(scanId: string): string {
+  const token = getToken();
+  const url = buildAbsoluteUrl(`/api/mcp/scans/${encodeURIComponent(scanId)}/findings.json`);
+  if (token) url.searchParams.set('token', token);
+  return url.toString();
+}
+
+export async function getMcpOverview(): Promise<McpOverview> {
+  return await request<McpOverview>('/api/mcp/overview');
 }

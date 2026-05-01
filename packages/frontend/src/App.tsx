@@ -7,6 +7,9 @@ import PoliciesPage from './pages/Policies';
 import SandboxesPage from './pages/Sandboxes';
 import SandboxDetailPage from './pages/SandboxDetail';
 import MonitoringPage from './pages/Monitoring';
+import McpServersPage from './pages/McpServers';
+import McpServerDetailPage from './pages/McpServerDetail';
+import McpScanReportPage from './pages/McpScanReport';
 
 function RequireAuth(props: {children: React.ReactNode}) {
   const auth = useAuth();
@@ -44,6 +47,30 @@ export default function App() {
             element={
               <RequireAuth>
                 <MonitoringPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/mcp"
+            element={
+              <RequireAuth>
+                <McpServersPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/mcp/servers/:id"
+            element={
+              <RequireAuth>
+                <McpServerDetailPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/mcp/scans/:id"
+            element={
+              <RequireAuth>
+                <McpScanReportPage />
               </RequireAuth>
             }
           />
